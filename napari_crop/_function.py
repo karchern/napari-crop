@@ -14,8 +14,8 @@ from ._utils import compute_combined_slices
 
 @register_function(menu="Utilities > Crop region(s) (napari-crop)")
 def crop_region(
-    layer: napari.layers.Layer,
-    shapes_layer: napari.layers.Shapes,
+    to_be_cropped: napari.layers.Layer,
+    cropping_layer: napari.layers.Shapes,
     viewer: 'napari.viewer.Viewer' = None,
 ) -> List[LayerDataTuple]:
     """Crop regions in napari defined by shapes."""
