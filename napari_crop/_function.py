@@ -34,7 +34,6 @@ def crop_region(
 
     if (
         isinstance(to_be_cropped, napari.layers.Image)
-        or isinstance(to_be_cropped, napari.layers.Labels)
     ):
         pass
     else:
@@ -46,18 +45,18 @@ def crop_region(
         rgb = False
 
     # Select points overlapping with polygon
-    points = to_be_cropped_points.as_layer_data_tuple()[0]
-    outPoly = []
-    polygon = Polygon(cropping_layer.as_layer_data_tuple()[0][0])
-    for i, po in enumerate(points):
-        poo = Point(po[0], po[1])
-        if not polygon.contains(poo):
-            outPoly.append(i)
-    cropped_points = deepcopy(to_be_cropped_points)
-    cropped_points.selected_data = napari.utils.events.Selection(tuple(outPoly))
-    cropped_points.remove_selected()
-
-    layer_data_points, layer_props_points, layer_type_points = cropped_points.as_layer_data_tuple()
+    if to_be_cropped_points is not None:
+        points = to_be_cropped_points.as_layer_data_tuple()[0]
+        outPoly = []
+        polygon = Polygon(cropping_layer.as_layer_data_tuple()[0][0])
+        for i, po in enumerate(points):
+            poo = Point(po[0], po[1])
+            if not polygon.contains(poo):
+                outPoly.append(i)
+        cropped_points = deepcopy(to_be_cropped_points)
+        cropped_points.selected_data = napari.utils.events.Selection(tuple(outPoly))
+        cropped_points.remove_selected()
+        layer_data_points, layer_props_points, layer_type_points = cropped_points.as_layer_data_tuple()
     
     shape_types = cropping_layer.shape_type
     shapes = cropping_layer.data
@@ -161,7 +160,8 @@ def crop_region(
         new_layer_props["name"] = new_name
         names_list.append(new_name)
         cropped_list.append((cropped_data, new_layer_props, layer_type_image))
-        cropped_list.append((layer_data_points, {**layer_props_points, 'name': 'cropped points'}, layer_type_points))
+        if to_be_cropped_points is not None:
+            cropped_list.append((layer_data_points, {**layer_props_points, 'name': 'cropped points'}, layer_type_points))
     return cropped_list
 
 
