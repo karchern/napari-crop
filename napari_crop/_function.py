@@ -6,51 +6,72 @@ from napari_tools_menu import register_function
 import napari
 from napari.types import LayerDataTuple
 from typing import List
+from copy import deepcopy
 from ._utils import compute_combined_slices
+
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
+
 
 # This is the actual plugin function, where we export our function
 # (The functions themselves are defined below)
-
-
+## THIS FUNCTION BELOW WAS TAKEN FROM napari-crop. I do not own this code, I'm just trying to learn
+## how Napari plugins work :)
 @register_function(menu="Utilities > Crop region(s) (napari-crop)")
 def crop_region(
     to_be_cropped: napari.layers.Layer,
+    to_be_cropped_points: napari.layers.Points,
     cropping_layer: napari.layers.Shapes,
     viewer: 'napari.viewer.Viewer' = None,
-) -> List[LayerDataTuple]:
+) -> List[napari.types.LayerDataTuple]:
     """Crop regions in napari defined by shapes."""
-    if shapes_layer is None:
-        shapes_layer.mode = "add_rectangle"
+    if cropping_layer is None:
+        cropping_layer.mode = "add_rectangle"
         warnings.warn("Please annotate a region to crop.")
         return
 
-    if not (
-        isinstance(layer, napari.layers.Image)
-        or isinstance(layer, napari.layers.Labels)
-    ):
-        warnings.warn("Please select an image or labels layer to crop.")
-        return
+    layer_data_image, layer_props_image, layer_type_image = to_be_cropped.as_layer_data_tuple()
 
-    layer_data, layer_props, layer_type = layer.as_layer_data_tuple()
+    if (
+        isinstance(to_be_cropped, napari.layers.Image)
+        or isinstance(to_be_cropped, napari.layers.Labels)
+    ):
+        pass
+    else:
+        warnings.warn("Please select an image or labels to_be_cropped to crop.")
 
     try:
-        rgb = layer_props["rgb"]
+        rgb = layer_props_image["rgb"]
     except KeyError:
         rgb = False
 
-    shape_types = shapes_layer.shape_type
-    shapes = shapes_layer.data
+    # Select points overlapping with polygon
+    points = to_be_cropped_points.as_layer_data_tuple()[0]
+    outPoly = []
+    polygon = Polygon(cropping_layer.as_layer_data_tuple()[0][0])
+    for i, po in enumerate(points):
+        poo = Point(po[0], po[1])
+        if not polygon.contains(poo):
+            outPoly.append(i)
+    cropped_points = deepcopy(to_be_cropped_points)
+    cropped_points.selected_data = napari.utils.events.Selection(tuple(outPoly))
+    cropped_points.remove_selected()
+
+    layer_data_points, layer_props_points, layer_type_points = cropped_points.as_layer_data_tuple()
+    
+    shape_types = cropping_layer.shape_type
+    shapes = cropping_layer.data
     cropped_list = []
     new_layer_index = 0
-    new_name = layer_props["name"] + " cropped [0]"
+    new_name = layer_props_image["name"] + " cropped [0]"
     names_list = []
     if viewer is not None:
-        # Get existing layer names in viewer
-        names_list = [layer.name for layer in viewer.layers]
+        # Get existing to_be_cropped names in viewer
+        names_list = [to_be_cropped.name for to_be_cropped in viewer.layers]
     for shape_count, [shape, shape_type] in enumerate(zip(shapes,
                                                           shape_types)):
         # move shape vertices to within image coordinate limits
-        layer_shape = np.array(layer_data.shape)
+        layer_shape = np.array(layer_data_image.shape)
         if rgb:
             layer_shape = layer_shape[:-1]
         # find min and max for each dimension
@@ -62,12 +83,12 @@ def crop_region(
             for first, last in np.stack([start.clip(0),
                                          stop.clip(0)]).astype(int).T
         )
-        cropped_data = layer_data[slices].copy()
+        cropped_data = layer_data_image[slices].copy()
         # handle polygons
         if shape_type != "rectangle":
             mask_nD_shape = np.array(
                 [1 if slc.stop is None
-                 else (min(slc.stop, layer_data.shape[i]) - slc.start)
+                 else (min(slc.stop, layer_data_image.shape[i]) - slc.start)
                  for i, slc in enumerate(slices)]
             )
             # remove extra dimensions from shape vertices
@@ -110,7 +131,7 @@ def crop_region(
             cropped_data = trim_zeros(cropped_data, rgb=rgb)
             slices = compute_combined_slices(layer_shape, slices, inner_slices)
 
-        new_layer_props = layer_props.copy()
+        new_layer_props = layer_props_image.copy()
         # Update start and stop values for bbox
         start = [slc.start for slc in slices if slc is not None]
         stop = []
@@ -125,13 +146,13 @@ def crop_region(
         # bounding box: ([min_z,] min_row, min_col, [max_z,] max_row, max_col)
         # Pixels belonging to the bounding box are in the half-open interval [min_row; max_row) and [min_col; max_col).
         new_layer_props['metadata'] = {'bbox': tuple(start + stop)}
-        # apply layer translation scaled by layer scaling factor
-        new_layer_props['translate'] = tuple(np.asarray(tuple(start)) * np.asarray(layer_props['scale']))
+        # apply to_be_cropped translation scaled by to_be_cropped scaling factor
+        new_layer_props['translate'] = tuple(np.asarray(tuple(start)) * np.asarray(layer_props_image['scale']))
 
-        # If layer name is in viewer or is about to be added,
-        # increment layer name until it has a different name
+        # If to_be_cropped name is in viewer or is about to be added,
+        # increment to_be_cropped name until it has a different name
         while True:
-            new_name = layer_props["name"] \
+            new_name = layer_props_image["name"] \
                 + f" cropped [{shape_count+new_layer_index}]"
             if new_name not in names_list:
                 break
@@ -139,7 +160,8 @@ def crop_region(
                 new_layer_index += 1
         new_layer_props["name"] = new_name
         names_list.append(new_name)
-        cropped_list.append((cropped_data, new_layer_props, layer_type))
+        cropped_list.append((cropped_data, new_layer_props, layer_type_image))
+        cropped_list.append((layer_data_points, {**layer_props_points, 'name': 'cropped points'}, layer_type_points))
     return cropped_list
 
 
